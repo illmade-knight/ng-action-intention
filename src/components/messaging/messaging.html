@@ -1,0 +1,60 @@
+<div class="container">
+  <mat-card>
+    <mat-card-header>
+      <mat-card-title>
+        <h1>Action/Intention Demo</h1>
+      </mat-card-title>
+      <mat-card-subtitle>
+        <h2>Logged in as: {{ userId | titlecase }}</h2>
+        <a mat-button [routerLink]="['/user/settings', userId]">
+          Go to Settings
+        </a>
+      </mat-card-subtitle>
+    </mat-card-header>
+
+    <mat-card-content>
+      <div>
+        <mat-form-field appearance="fill" class="full-width">
+          <mat-label>Recipient</mat-label>
+          <mat-select [(ngModel)]="recipientId">
+            @if (userId === 'alice') {
+              <mat-option [value]="'bob'">Bob</mat-option>
+            }
+            @if (userId === 'bob') {
+              <mat-option [value]="'alice'">Alice</mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+
+        <mat-form-field appearance="fill" class="full-width">
+          <mat-label>Message to {{ recipientId | titlecase }}</mat-label>
+          <input matInput [(ngModel)]="messageToSend">
+        </mat-form-field>
+
+        <div class="button-row">
+          <button mat-raised-button color="primary" (click)="sendMessage()">
+            Send Message
+          </button>
+          <button mat-raised-button color="accent" (click)="checkMessages()">
+            Check for Messages
+          </button>
+        </div>
+      </div>
+
+      <mat-divider></mat-divider>
+
+      <div class="status-panel">
+        <h4>Status:</h4>
+        <pre>{{ statusLog }}</pre>
+      </div>
+
+      <div class="decrypted-panel">
+        <h4>Decrypted Message:</h4>
+        <mat-form-field appearance="fill" class="full-width">
+          <mat-label>Decrypted Message</mat-label>
+          <textarea matInput readonly [(ngModel)]="decryptedMessage"></textarea>
+        </mat-form-field>
+      </div>
+    </mat-card-content>
+  </mat-card>
+</div>
