@@ -1,5 +1,3 @@
-// in ng-action-intention/src/app/services/key-management.service.ts
-
 import { Injectable } from '@angular/core';
 import {
   Crypto,
@@ -8,6 +6,7 @@ import {
   LocalStorageKeyStore,
   SecureEnvelope,
   EncryptedPayload,
+  URN,
 } from 'ts-action-intention';
 
 @Injectable({
@@ -20,25 +19,13 @@ export class KeyManagementService {
   private routingClient = new RoutingClientImpl('http://localhost:8082');
 
   async checkForLocalKeys(userId: string): Promise<boolean> {
-    console.log(`[KeyManagementService] 1. Calling keyStore.loadKeyPair for user: ${userId}`);
     const storageKey = `crypto_keys_${userId}`;
     const storedValue = localStorage.getItem(storageKey);
-
-    console.log(`[KeyManagementService] 2. Raw value from localStorage for key "${storageKey}":`, storedValue);
-
-    // This replicates the keyStore logic with logging
-    if (!storedValue) {
-      console.log(`[KeyManagementService] 3. Value is falsy. Returning false.`);
-      return false;
-    }
-
+    if (!storedValue) { return false; }
     try {
-      // We try to parse it to see if it's valid
       JSON.parse(storedValue);
-      console.log(`[KeyManagementService] 3. Value is truthy and valid JSON. Returning true.`);
       return true;
     } catch (e) {
-      console.log(`[KeyManagementService] 3. Value is truthy but INVALID JSON. Returning false.`);
       return false;
     }
   }
@@ -51,61 +38,105 @@ export class KeyManagementService {
     return this.generateAndStoreKeys(userId);
   }
 
-  async generateAndStoreKeys(userId:string): Promise<CryptoKeyPair> {
+  async generateAndStoreKeys(userId: string): Promise<CryptoKeyPair> {
     const keyPair = await this.crypto.generateEncryptionKeys();
     await this.keyStore.saveKeyPair(userId, keyPair);
     const publicKeyBytes = await crypto.subtle.exportKey('spki', keyPair.publicKey);
-    await this.keyClient.storeKey(userId, new Uint8Array(publicKeyBytes));
+    const userUrn = URN.create('user', userId);
+    await this.keyClient.storeKey(userUrn, new Uint8Array(publicKeyBytes));
     return keyPair;
   }
 
-  /**
-   * ADDED: This method exposes the delete functionality for use in components.
-   */
   async deleteLocalKeys(userId: string): Promise<void> {
     await this.keyStore.deleteKeyPair(userId);
   }
 
-  async sendMessage(senderId: string, recipientId: string, plaintext: string) {
-    const publicKeyBytes = await this.keyClient.getKey(recipientId);
-    const kBuffer = new Uint8Array(publicKeyBytes)
+  async sendMessage(senderId: string, recipientId: string, plaintext: string): Promise<void> {
+    const senderUrn = URN.create('user', senderId);
+    const recipientUrn = URN.create('user', recipientId);
+
+    const publicKeyBytes = await this.keyClient.getKey(recipientUrn);
     const publicKey = await crypto.subtle.importKey(
       'spki',
-      kBuffer,
+      new Uint8Array(publicKeyBytes),
       { name: 'RSA-OAEP', hash: 'SHA-256' },
       true,
       ['encrypt']
     );
+
     const encodedText = new TextEncoder().encode(plaintext);
     const payload: EncryptedPayload = await this.crypto.encrypt(publicKey, encodedText);
-    const signature = '';
-    const envelope: SecureEnvelope = {
-      senderId: senderId,
-      recipientId: recipientId,
+    const signature = new Uint8Array(); // Placeholder for a real signature
+
+    // THE FIX: Create a plain JavaScript object for the network call.
+    // All fields are explicitly converted to the string format the backend expects.
+    const networkEnvelope = {
+      senderId: senderUrn.toString(),
+      recipientId: recipientUrn.toString(),
+      messageId: crypto.randomUUID(), // Add the missing messageId
       encryptedSymmetricKey: this.uint8ArrayToBase64(payload.encryptedSymmetricKey),
       encryptedData: this.uint8ArrayToBase64(payload.encryptedData),
-      signature: signature,
+      signature: this.uint8ArrayToBase64(signature),
     };
-    await this.routingClient.send(envelope);
+
+    // The library's `send` method expects a SecureEnvelope, but we must send
+    // the network-compatible format. The `as any` cast is necessary here.
+    await this.routingClient.send(networkEnvelope as any);
   }
 
   async getMessages(userId: string): Promise<SecureEnvelope[]> {
-    return this.routingClient.receive(userId);
+    const userUrn = URN.create('user', userId);
+    const rawMessages: any[] = await this.routingClient.receive(userUrn);
+
+    const validMessages: SecureEnvelope[] = [];
+    for (const raw of rawMessages) {
+      try {
+        if (!raw.senderId || !raw.recipientId) {
+          console.warn('Skipping message with missing sender/recipient ID', raw);
+          continue;
+        }
+        const senderId = URN.parse(raw.senderId);
+        const recipientId = URN.parse(raw.recipientId);
+        if (!senderId || !recipientId) {
+          console.warn('Skipping message with invalid URN', raw);
+          continue;
+        }
+        validMessages.push({
+          senderId: senderId,
+          recipientId: recipientId,
+          messageId: raw.messageId,
+          encryptedSymmetricKey: this.base64ToUint8Array(raw.encryptedSymmetricKey),
+          encryptedData: this.base64ToUint8Array(raw.encryptedData),
+          signature: this.base64ToUint8Array(raw.signature),
+        });
+      } catch (error) {
+        console.warn('Failed to parse a received message, skipping.', { rawMessage: raw, error });
+      }
+    }
+    return validMessages;
   }
 
   async decryptMessage(privateKey: CryptoKey, envelope: SecureEnvelope): Promise<string> {
-    const encryptedSymmetricKey = this.base64ToUint8Array(envelope.encryptedSymmetricKey);
-    const encryptedData = this.base64ToUint8Array(envelope.encryptedData);
-    const decryptedBytes = await this.crypto.decrypt(privateKey, encryptedSymmetricKey, encryptedData);
+    const decryptedBytes = await this.crypto.decrypt(
+      privateKey,
+      envelope.encryptedSymmetricKey,
+      envelope.encryptedData
+    );
     return new TextDecoder().decode(decryptedBytes);
   }
 
+  // --- Base64 Helper Methods ---
   private uint8ArrayToBase64(buffer: Uint8Array): string {
-    return btoa(String.fromCharCode.apply(null, Array.from(buffer)));
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return window.btoa(binary);
   }
 
   private base64ToUint8Array(base64: string): Uint8Array {
-    const binaryString = atob(base64);
+    const binaryString = window.atob(base64);
     const len = binaryString.length;
     const bytes = new Uint8Array(len);
     for (let i = 0; i < len; i++) {
@@ -114,3 +145,4 @@ export class KeyManagementService {
     return bytes;
   }
 }
+

@@ -5,12 +5,12 @@ import {MatButtonModule} from '@angular/material/button';
 import {MatDividerModule} from '@angular/material/divider';
 import {MatFormFieldModule} from '@angular/material/form-field';
 import {MatInputModule} from '@angular/material/input';
-import {MatSelectModule} from '@angular/material/select'; // New import
+import {MatSelectModule} from '@angular/material/select';
 import {FormsModule} from '@angular/forms';
-import {SecureEnvelope} from 'ts-action-intention';
+// CORRECTED: Import URN alongside SecureEnvelope
+import {SecureEnvelope, URN} from 'ts-action-intention';
 
 import {MatCard, MatCardContent, MatCardHeader, MatCardSubtitle, MatCardTitle} from '@angular/material/card';
-
 import {KeyManagementService} from '../../services/key-management';
 
 @Component({
@@ -24,7 +24,7 @@ import {KeyManagementService} from '../../services/key-management';
     MatDividerModule,
     MatFormFieldModule,
     MatInputModule,
-    MatSelectModule, // Add MatSelectModule
+    MatSelectModule,
     FormsModule,
     MatCard,
     MatCardHeader,
@@ -44,55 +44,61 @@ export class Messaging implements OnInit {
 
   constructor(
     private route: ActivatedRoute,
-    private keyManagementService: KeyManagementService // Inject the service
+    private keyManagementService: KeyManagementService
   ) {}
 
   ngOnInit(): void {
     this.route.paramMap.subscribe(params => {
-      this.userId = params.get('id') as string;
+      const id = params.get('id');
+      if (!id) {
+        this.statusLog = 'Error: User ID not found in route.';
+        return;
+      }
+      this.userId = id;
       this.recipientId = this.userId === 'alice' ? 'bob' : 'alice';
       this.initializeUser();
     });
   }
 
   async initializeUser() {
-    this.statusLog = 'Initializing user and keys...';
+    this.statusLog = `Initializing user '${this.userId}' and keys...`;
     try {
       this.userKeys = await this.keyManagementService.getOrCreateKeys(this.userId);
       this.statusLog = 'User and keys initialized successfully.';
-    } catch (error) {
-      this.statusLog = `Error initializing keys: ${error}`;
+    } catch (error: any) {
+      this.statusLog = `Error initializing keys: ${error.message}`;
       console.error(error);
     }
   }
 
   async sendMessage() {
+    if (!this.userId || !this.recipientId || !this.messageToSend) return;
     this.statusLog = `Sending message to ${this.recipientId}...`;
     try {
       await this.keyManagementService.sendMessage(this.userId, this.recipientId, this.messageToSend);
       this.statusLog = `Message sent to ${this.recipientId} successfully!`;
       this.messageToSend = '';
-    } catch (error) {
-      this.statusLog = `Error sending message: ${error}`;
+    } catch (error: any) {
+      this.statusLog = `Error sending message: ${error.message}`;
       console.error(error);
     }
   }
 
   async checkMessages() {
+    if (!this.userId) return;
     this.statusLog = 'Checking for messages...';
     try {
       const messages: SecureEnvelope[] = await this.keyManagementService.getMessages(this.userId);
       if (messages.length > 0) {
         const firstMessage = messages[0];
         const privateKey = this.userKeys.privateKey;
-        // CORRECTED: Pass the whole envelope to the service for decryption
         this.decryptedMessage = await this.keyManagementService.decryptMessage(privateKey, firstMessage);
-        this.statusLog = `Decrypted a message.`;
+        this.statusLog = `Decrypted a message from ${firstMessage.senderId.toString()}.`;
       } else {
         this.statusLog = 'No new messages.';
       }
-    } catch (error) {
-      this.statusLog = `Error checking for messages: ${error}`;
+    } catch (error: any) {
+      this.statusLog = `Error checking for messages: ${error.message}`;
       console.error(error);
     }
   }
