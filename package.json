@@ -31,10 +31,11 @@
     "@angular/platform-browser": "^20.2.0",
     "@angular/router": "^20.2.0",
     "@tailwindcss/cli": "^4.1.13",
+    "angular-oauth2-oidc": "^20.0.2",
     "rxjs": "~7.8.0",
+    "ts-action-intention": "file:../ts-action-intention/dist/",
     "tslib": "^2.3.0",
-    "zone.js": "~0.15.0",
-    "ts-action-intention": "file:../ts-action-intention/dist/"
+    "zone.js": "~0.15.0"
   },
   "devDependencies": {
     "@angular/build": "^20.2.2",

@@ -1,10 +1,15 @@
 <div class="container">
   <h1>Action/Intention Demo</h1>
-  <h2>Select a user to continue:</h2>
-  <a mat-raised-button color="primary" [routerLink]="['/user/messaging', 'alice']">
-    Login as Alice
-  </a>
-  <a mat-raised-button color="accent" [routerLink]="['/user/messaging', 'bob']">
-    Login as Bob
-  </a>
+
+  <button [@if]="!isLoggedIn" mat-raised-button color="primary" (click)="login()">
+    Login with Google
+  </button>
+
+  <div [@if]="isLoggedIn">
+    <h2>Welcome!</h2>
+    <pre>{{ userProfile | json }}</pre>
+    <button mat-raised-button color="warn" (click)="logout()">
+      Logout
+    </button>
+  </div>
 </div>
