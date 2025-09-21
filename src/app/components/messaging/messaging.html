@@ -2,11 +2,12 @@
   <mat-card>
     <mat-card-header>
       <mat-card-title>
-        <h1>Action/Intention Demo</h1>
+        <h1>Secure Messenger</h1>
       </mat-card-title>
       <mat-card-subtitle>
-        <h2>Logged in as: {{ userId | titlecase }}</h2>
-        <a mat-button [routerLink]="['/user/settings', userId]">
+        <!-- Display the current user's alias from the signal -->
+        <h2>Logged in as: {{ currentUser()?.alias }}</h2>
+        <a mat-button routerLink="/settings">
           Go to Settings
         </a>
       </mat-card-subtitle>
@@ -16,18 +17,18 @@
       <div>
         <mat-form-field appearance="fill" class="full-width">
           <mat-label>Recipient</mat-label>
-          <mat-select [(ngModel)]="recipientId">
-            @if (userId === 'alice') {
-              <mat-option [value]="'bob'">Bob</mat-option>
-            }
-            @if (userId === 'bob') {
-              <mat-option [value]="'alice'">Alice</mat-option>
+          <!-- Bind the selection to the recipientEmail property -->
+          <mat-select [(ngModel)]="recipientEmail">
+            <!-- Iterate over the addressBook signal to create options -->
+            @for (contact of addressBook(); track contact.id) {
+              <!-- The value of the option is the contact's email -->
+              <mat-option [value]="contact.email">{{ contact.alias }}</mat-option>
             }
           </mat-select>
         </mat-form-field>
 
         <mat-form-field appearance="fill" class="full-width">
-          <mat-label>Message to {{ recipientId | titlecase }}</mat-label>
+          <mat-label>Message</mat-label>
           <input matInput [(ngModel)]="messageToSend">
         </mat-form-field>
 
@@ -45,16 +46,18 @@
 
       <div class="status-panel">
         <h4>Status:</h4>
-        <pre>{{ statusLog }}</pre>
+        <pre>{{ statusLog() }}</pre>
       </div>
 
       <div class="decrypted-panel">
         <h4>Decrypted Message:</h4>
         <mat-form-field appearance="fill" class="full-width">
-          <mat-label>Decrypted Message</mat-label>
-          <textarea matInput readonly [(ngModel)]="decryptedMessage"></textarea>
+          <mat-label>Most Recent Message</mat-label>
+          <!-- Use a textarea for better display of longer messages -->
+          <textarea matInput readonly rows="4">{{ decryptedMessage() }}</textarea>
         </mat-form-field>
       </div>
     </mat-card-content>
   </mat-card>
 </div>
+

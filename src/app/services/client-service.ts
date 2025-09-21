@@ -12,7 +12,7 @@ import {
 @Injectable({
   providedIn: 'root',
 })
-export class KeyManagementService {
+export class ClientService {
   private crypto = new Crypto();
   private keyStore = new LocalStorageKeyStore();
   private keyClient = new KeyClientImpl('http://localhost:8081');
@@ -86,6 +86,7 @@ export class KeyManagementService {
 
   async getMessages(userId: string): Promise<SecureEnvelope[]> {
     const userUrn = URN.create('user', userId);
+    console.log("getting messages from client")
     const rawMessages: any[] = await this.routingClient.receive(userUrn);
 
     const validMessages: SecureEnvelope[] = [];

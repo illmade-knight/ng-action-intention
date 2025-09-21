@@ -1,19 +1,20 @@
-<a mat-button [routerLink]="['/user/messaging', userId]">
+<!-- The routerLink is now static as we don't need to pass the user ID -->
+<a mat-button routerLink="/messaging">
   &larr; Back to Messaging
 </a>
 
-@switch (keyStatus) {
+@switch (keyStatus()) {
   @case ('checking') {
     <p>Checking for local private key...</p>
   }
   @case ('found') {
-    <p>✅ Private key is stored locally in your browser.</p>
+    <p>✅ Private key is stored locally in your browser for {{ currentUser()?.alias }}.</p>
     <button mat-stroked-button color="warn" (click)="generateKeys()">
       Generate New Keys (Overwrite Existing)
     </button>
   }
   @case ('missing') {
-    <p>❌ No local private key found.</p>
+    <p>❌ No local private key found for {{ currentUser()?.alias }}.</p>
     <button mat-raised-button color="primary" (click)="generateKeys()">
       Generate and Store Keys
     </button>
@@ -23,6 +24,6 @@
 <div class="debug-panel">
   <mat-divider></mat-divider>
   <h3>Debug Info</h3>
-  <pre>Current Status (keyStatus): {{ keyStatus | json }}</pre>
-  <pre>Raw Result from Service (keysExist): {{ keyCheckResult | json }}</pre>
+  <pre>Current Status (keyStatus): {{ keyStatus() | json }}</pre>
+  <pre>Raw Result from Service (keyCheckResult): {{ keyCheckResult | json }}</pre>
 </div>

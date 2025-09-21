@@ -1,0 +1,30 @@
+<div class="container">
+  <mat-card>
+    <mat-card-header>
+      <mat-card-title>Action/Intention</mat-card-title>
+      <mat-card-subtitle>Secure Messaging Demo</mat-card-subtitle>
+    </mat-card-header>
+
+    <mat-card-content class="content">
+      <!-- Show this block if the user is NOT authenticated -->
+      @if (!isAuthenticated()) {
+        <h2>Welcome</h2>
+        <p>Please log in with your Google account to continue.</p>
+        <!-- This link points to the Node.js backend to start the OAuth flow -->
+        <a mat-raised-button color="primary" href="http://localhost:3000/auth/google">
+          Login with Google
+        </a>
+      }
+
+      <!-- Show this block if the user IS authenticated -->
+      @if (isAuthenticated()) {
+        <h2>Welcome, {{ currentUser()?.alias }}!</h2>
+        <p>You are successfully logged in.</p>
+        <button mat-stroked-button color="warn" (click)="logout()">
+          Logout
+        </button>
+      }
+    </mat-card-content>
+  </mat-card>
+</div>
+
