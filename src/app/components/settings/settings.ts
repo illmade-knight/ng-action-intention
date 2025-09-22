@@ -40,8 +40,8 @@ export class SettingsComponent implements OnInit {
 
     this.keyStatus.set('checking');
     this.keyCheckResult = null;
-    // CORRECTED: Use user.email as the identifier
-    const keysExist = await this.clientService.checkForLocalKeys(user.email);
+    // CORRECTED: Use user.id as the identifier
+    const keysExist = await this.clientService.checkForLocalKeys(user.id);
     this.keyCheckResult = keysExist;
     this.keyStatus.set(keysExist ? 'found' : 'missing');
   }
@@ -55,15 +55,15 @@ export class SettingsComponent implements OnInit {
 
     this.keyStatus.set('checking');
     try {
-      // CORRECTED: Use user.email as the identifier
-      await this.clientService.generateAndStoreKeys(user.email);
+      // CORRECTED: Use user.id as the identifier
+      await this.clientService.generateAndStoreKeys(user.id);
       this.keyStatus.set('found');
       // Re-run the check to update the UI state
       await this.checkForKey();
     } catch (error: any) {
       console.error("Key generation failed:", error);
-      // CORRECTED: Use user.email as the identifier
-      await this.clientService.deleteLocalKeys(user.email);
+      // CORRECTED: Use user.id as the identifier
+      await this.clientService.deleteLocalKeys(user.id);
       this.keyStatus.set('missing');
       this.keyCheckResult = false;
       alert(`Key generation failed: ${error.message}`);

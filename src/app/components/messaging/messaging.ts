@@ -12,8 +12,9 @@ import { firstValueFrom } from 'rxjs';
 
 import { ClientService } from '../../services/client-service';
 import { AuthService } from '../../services/auth';
+import { MessagingService } from '../../services/messaging-service'; // Import the new service
 import type { AddressBookContact } from '../../models/user';
-import { SecureEnvelope } from 'ts-action-intention';
+import { SecureEnvelope  } from '@illmade-knight/action-intention-protos';
 
 @Component({
   selector: 'app-messaging',
@@ -34,6 +35,7 @@ import { SecureEnvelope } from 'ts-action-intention';
 export class MessagingComponent implements OnInit {
   private authService = inject(AuthService);
   private clientService = inject(ClientService);
+  private messagingService = inject(MessagingService); // Inject the new service
 
   // Component State
   currentUser = this.authService.currentUser;
@@ -41,7 +43,9 @@ export class MessagingComponent implements OnInit {
 
   // Form Models
   recipientEmail: string | null = null;
+  recipientId: string | null = null;
   messageToSend = '';
+  newContactEmail = '';
 
   // UI Feedback
   statusLog = signal('Ready.');
@@ -50,7 +54,8 @@ export class MessagingComponent implements OnInit {
   async ngOnInit(): Promise<void> {
     this.statusLog.set('Fetching address book...');
     try {
-      const book = await firstValueFrom(this.authService.getAddressBook());
+      // CORRECTED: Use the new messagingService to get the address book.
+      const book = await firstValueFrom(this.messagingService.getAddressBook());
       this.addressBook.set(book);
       this.statusLog.set('Address book loaded.');
     } catch (error) {
@@ -61,15 +66,23 @@ export class MessagingComponent implements OnInit {
 
   async sendMessage(): Promise<void> {
     const sender = this.currentUser();
-    if (!sender || !this.recipientEmail || !this.messageToSend) {
-      this.statusLog.set('Error: Sender, recipient, and message must be set.');
+    // 1. First, validate the application state (is a user logged in?)
+    if (!sender) {
+      this.statusLog.set('Error: Cannot send message. User is not authenticated.');
+      console.error('sendMessage called but currentUser is null. This should not happen if the authGuard is working.');
       return;
     }
 
-    this.statusLog.set(`Sending message to ${this.recipientEmail}...`);
+    // 2. Second, validate the user's form input.
+    if (!this.recipientId || !this.messageToSend) {
+      this.statusLog.set('Error: A recipient and message must be provided.');
+      return;
+    }
+
+    this.statusLog.set(`Sending message...`);
     try {
-      await this.clientService.sendMessage(sender.email, this.recipientEmail, this.messageToSend);
-      this.statusLog.set(`Message sent to ${this.recipientEmail} successfully!`);
+      await this.messagingService.sendMessage(this.recipientId, this.messageToSend);
+      this.statusLog.set(`Message sent successfully!`);
       this.messageToSend = '';
     } catch (error: any) {
       this.statusLog.set(`Error sending message: ${error.message}`);
@@ -78,35 +91,41 @@ export class MessagingComponent implements OnInit {
   }
 
   async checkMessages(): Promise<void> {
-    const user = this.currentUser();
-    if (!user) {
-      this.statusLog.set('Error: You must be logged in to check messages.');
-      return;
-    }
-
     this.statusLog.set('Checking for messages...');
     try {
-      const messages: SecureEnvelope[] = await this.clientService.getMessages(user.email);
+      // Await the result, which will be an object or null.
+      const decryptedResult = await this.messagingService.getAndDecryptMessages();
 
-      if (messages.length > 0) {
-        this.statusLog.set(`Found ${messages.length} new message(s). Decrypting first one...`);
-        const firstMessage = messages[0];
-        const userKeys = await this.clientService.getOrCreateKeys(user.email);
-        const decrypted = await this.clientService.decryptMessage(userKeys.privateKey, firstMessage);
-        this.decryptedMessage.set(decrypted);
-        this.statusLog.set(`Decrypted a message from ${firstMessage.senderId.toString()}.`);
+      // Check if the result is not null.
+      if (decryptedResult) {
+        this.decryptedMessage.set(decryptedResult.message);
+        this.statusLog.set(`Decrypted a message from ${decryptedResult.from}.`);
       } else {
-        // This is the correct, normal, successful state for an empty inbox.
         this.statusLog.set('No new messages found.');
         this.decryptedMessage.set('');
       }
     } catch (error: any) {
-      // CORRECTED: This block now handles only genuine errors.
-      // It provides clear feedback to the user and logs the technical details
-      // for the developer, without conflating the error with an empty inbox.
-      this.statusLog.set('Error: Could not retrieve messages from the server.');
+      this.statusLog.set('Error: Could not retrieve or decrypt messages.');
       this.decryptedMessage.set('');
       console.error('An error occurred while fetching messages:', error);
+    }
+  }
+
+  async addContact(): Promise<void> {
+    if (!this.newContactEmail) {
+      this.statusLog.set('Please enter an email to add.');
+      return;
+    }
+    this.statusLog.set(`Adding contact ${this.newContactEmail}...`);
+    try {
+      await this.messagingService.addContactByEmail(this.newContactEmail);
+      this.statusLog.set(`Contact ${this.newContactEmail} added successfully! Reloading address book...`);
+      this.newContactEmail = '';
+      // Refresh the address book to show the new contact
+      await this.ngOnInit();
+    } catch (error) {
+      this.statusLog.set(`Error: Could not add contact.`);
+      console.error(error);
     }
   }
 }

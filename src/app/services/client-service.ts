@@ -1,149 +1,138 @@
-import { Injectable } from '@angular/core';
+// in: src/app/services/client-service.ts
+
+import { inject, Injectable } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
 import {
-  Crypto,
-  KeyClientImpl,
-  RoutingClientImpl,
-  LocalStorageKeyStore,
-  SecureEnvelope,
-  EncryptedPayload,
-  URN,
+  Crypto, // Imported from the library
+  EncryptedPayload, // Imported from the library
+  StorageProvider, // Imported from the library
 } from 'ts-action-intention';
+import { URN, SecureEnvelope } from '@illmade-knight/action-intention-protos';
+import { AngularKeyClient, AngularRoutingClient } from './ng-clients';
+import { IndexedDbProvider } from './indexed-db-provider'; // Our new provider
 
 @Injectable({
   providedIn: 'root',
 })
 export class ClientService {
+  private http = inject(HttpClient);
+  // Use the StorageProvider for ALL local data, which is our IndexedDbProvider
+  private storageProvider: StorageProvider = inject(IndexedDbProvider);
+  // Use the Crypto class from the library for all crypto operations
   private crypto = new Crypto();
-  private keyStore = new LocalStorageKeyStore();
-  private keyClient = new KeyClientImpl('http://localhost:8081');
-  private routingClient = new RoutingClientImpl('http://localhost:8082');
 
+  // These clients remain the same as they handle network communication
+  private keyClient = new AngularKeyClient(this.http);
+  private routingClient = new AngularRoutingClient(this.http);
+
+  /**
+   * Checks if cryptographic keys for a given user are stored locally.
+   * Delegates directly to the storage provider.
+   */
   async checkForLocalKeys(userId: string): Promise<boolean> {
-    const storageKey = `crypto_keys_${userId}`;
-    const storedValue = localStorage.getItem(storageKey);
-    if (!storedValue) { return false; }
-    try {
-      JSON.parse(storedValue);
-      return true;
-    } catch (e) {
-      return false;
-    }
+    const keys = await this.storageProvider.loadKeyPair(userId);
+    return !!keys;
   }
 
+  /**
+   * Retrieves existing keys from storage or generates new ones if none are found.
+   * All local storage interaction is now handled by the provider.
+   */
   async getOrCreateKeys(userId: string): Promise<CryptoKeyPair> {
-    const existingKeys = await this.keyStore.loadKeyPair(userId);
+    const existingKeys = await this.storageProvider.loadKeyPair(userId);
     if (existingKeys) {
+      console.debug(`[DEBUG] Retrieved existing keys for userId: ${userId}`);
+      if (existingKeys.privateKey) {
+        const privateKeyBytes = await crypto.subtle.exportKey('jwk', existingKeys.privateKey);
+        console.debug(`[DEBUG] Loaded private key length: ${JSON.stringify(privateKeyBytes).length} bytes`);
+      }
+      if (existingKeys.publicKey) {
+        const publicKeyBytes = await crypto.subtle.exportKey('spki', existingKeys.publicKey);
+        console.debug(`[DEBUG] Loaded public key length: ${publicKeyBytes.byteLength} bytes`);
+      }
       return existingKeys;
     }
     return this.generateAndStoreKeys(userId);
   }
 
+  /**
+   * Generates a new key pair, stores it locally via the provider,
+   * and uploads the public key to the server.
+   */
   async generateAndStoreKeys(userId: string): Promise<CryptoKeyPair> {
-    const keyPair = await this.crypto.generateEncryptionKeys();
-    await this.keyStore.saveKeyPair(userId, keyPair);
+    const keyPair = await this.crypto.generateEncryptionKeys(); // Uses library method
+    if (keyPair.privateKey) {
+      const privateKeyBytes = await crypto.subtle.exportKey('jwk', keyPair.privateKey);
+      console.debug(`[DEBUG] Generated private key length: ${JSON.stringify(privateKeyBytes).length} bytes`);
+    }
+
+    if (keyPair.publicKey) {
+      const publicKeyBytes = await crypto.subtle.exportKey('spki', keyPair.publicKey);
+      console.debug(`[DEBUG] Generated public key length: ${publicKeyBytes.byteLength} bytes`);
+    }
+    await this.storageProvider.saveKeyPair(userId, keyPair); // Uses provider method
+
     const publicKeyBytes = await crypto.subtle.exportKey('spki', keyPair.publicKey);
     const userUrn = URN.create('user', userId);
     await this.keyClient.storeKey(userUrn, new Uint8Array(publicKeyBytes));
+
     return keyPair;
   }
 
+  /**
+   * Deletes a user's keys from local storage.
+   */
   async deleteLocalKeys(userId: string): Promise<void> {
-    await this.keyStore.deleteKeyPair(userId);
+    await this.storageProvider.deleteKeyPair(userId);
   }
 
+  /**
+   * Encrypts and sends a message to a recipient.
+   * The core logic remains but now uses the library's crypto class.
+   */
   async sendMessage(senderId: string, recipientId: string, plaintext: string): Promise<void> {
-    const senderUrn = URN.create('user', senderId);
     const recipientUrn = URN.create('user', recipientId);
-
     const publicKeyBytes = await this.keyClient.getKey(recipientUrn);
-    const publicKey = await crypto.subtle.importKey(
-      'spki',
-      new Uint8Array(publicKeyBytes),
-      { name: 'RSA-OAEP', hash: 'SHA-256' },
-      true,
-      ['encrypt']
-    );
+
+    const publicKey = await crypto.subtle.importKey('spki', new Uint8Array(publicKeyBytes), { name: 'RSA-OAEP', hash: 'SHA-256' }, true, ['encrypt']);
 
     const encodedText = new TextEncoder().encode(plaintext);
+    // Uses the library's encrypt method
     const payload: EncryptedPayload = await this.crypto.encrypt(publicKey, encodedText);
-    const signature = new Uint8Array(); // Placeholder for a real signature
 
-    // THE FIX: Create a plain JavaScript object for the network call.
-    // All fields are explicitly converted to the string format the backend expects.
-    const networkEnvelope = {
-      senderId: senderUrn.toString(),
-      recipientId: recipientUrn.toString(),
-      messageId: crypto.randomUUID(), // Add the missing messageId
-      encryptedSymmetricKey: this.uint8ArrayToBase64(payload.encryptedSymmetricKey),
-      encryptedData: this.uint8ArrayToBase64(payload.encryptedData),
-      signature: this.uint8ArrayToBase64(signature),
+    const envelope: SecureEnvelope = {
+      senderId: URN.create('user', senderId),
+      recipientId: recipientUrn,
+      messageId: crypto.randomUUID(),
+      encryptedSymmetricKey: payload.encryptedSymmetricKey,
+      encryptedData: payload.encryptedData,
+      signature: new Uint8Array(), // Signature implementation is separate
     };
 
-    // The library's `send` method expects a SecureEnvelope, but we must send
-    // the network-compatible format. The `as any` cast is necessary here.
-    await this.routingClient.send(networkEnvelope as any);
+    await this.routingClient.send(envelope);
   }
 
-  async getMessages(userId: string): Promise<SecureEnvelope[]> {
-    const userUrn = URN.create('user', userId);
-    console.log("getting messages from client")
-    const rawMessages: any[] = await this.routingClient.receive(userUrn);
-
-    const validMessages: SecureEnvelope[] = [];
-    for (const raw of rawMessages) {
-      try {
-        if (!raw.senderId || !raw.recipientId) {
-          console.warn('Skipping message with missing sender/recipient ID', raw);
-          continue;
-        }
-        const senderId = URN.parse(raw.senderId);
-        const recipientId = URN.parse(raw.recipientId);
-        if (!senderId || !recipientId) {
-          console.warn('Skipping message with invalid URN', raw);
-          continue;
-        }
-        validMessages.push({
-          senderId: senderId,
-          recipientId: recipientId,
-          messageId: raw.messageId,
-          encryptedSymmetricKey: this.base64ToUint8Array(raw.encryptedSymmetricKey),
-          encryptedData: this.base64ToUint8Array(raw.encryptedData),
-          signature: this.base64ToUint8Array(raw.signature),
-        });
-      } catch (error) {
-        console.warn('Failed to parse a received message, skipping.', { rawMessage: raw, error });
-      }
-    }
-    return validMessages;
+  /**
+   * Fetches any pending encrypted messages for the user.
+   */
+  async getMessages(userEmail: string): Promise<SecureEnvelope[]> {
+    const userUrn = URN.create('user', userEmail);
+    return this.routingClient.receive(userUrn);
   }
 
+  /**
+   * Decrypts a received secure envelope using the library's crypto class.
+   */
   async decryptMessage(privateKey: CryptoKey, envelope: SecureEnvelope): Promise<string> {
-    const decryptedBytes = await this.crypto.decrypt(
-      privateKey,
-      envelope.encryptedSymmetricKey,
-      envelope.encryptedData
-    );
+    // Uses the library's decrypt method
+    if (privateKey) {
+      const privateKeyBytes = await crypto.subtle.exportKey('jwk', privateKey);
+      console.debug(`[DEBUG] Retrieved private key length: ${JSON.stringify(privateKeyBytes).length} bytes`);
+    }
+    const sk = new Uint8Array(envelope.encryptedSymmetricKey)
+    const ed = new Uint8Array(envelope.encryptedData)
+    console.log("key length", sk.length)
+    const decryptedBytes = await this.crypto.decrypt(privateKey, sk, ed);
     return new TextDecoder().decode(decryptedBytes);
   }
-
-  // --- Base64 Helper Methods ---
-  private uint8ArrayToBase64(buffer: Uint8Array): string {
-    let binary = '';
-    const bytes = new Uint8Array(buffer);
-    for (let i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return window.btoa(binary);
-  }
-
-  private base64ToUint8Array(base64: string): Uint8Array {
-    const binaryString = window.atob(base64);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    return bytes;
-  }
 }
-

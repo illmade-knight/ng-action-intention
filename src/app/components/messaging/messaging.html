@@ -5,7 +5,6 @@
         <h1>Secure Messenger</h1>
       </mat-card-title>
       <mat-card-subtitle>
-        <!-- Display the current user's alias from the signal -->
         <h2>Logged in as: {{ currentUser()?.alias }}</h2>
         <a mat-button routerLink="/settings">
           Go to Settings
@@ -14,15 +13,28 @@
     </mat-card-header>
 
     <mat-card-content>
-      <div>
+      <div class="form-section">
+        <h3>Add New Contact</h3>
+        <mat-form-field appearance="fill" class="full-width">
+          <mat-label>Contact's Email</mat-label>
+          <input matInput [(ngModel)]="newContactEmail" placeholder="friend@example.com">
+        </mat-form-field>
+        <div class="button-row">
+          <button mat-stroked-button color="primary" (click)="addContact()">
+            Add Contact
+          </button>
+        </div>
+      </div>
+
+      <mat-divider></mat-divider>
+
+      <div class="form-section">
+        <h3>Send a Message</h3>
         <mat-form-field appearance="fill" class="full-width">
           <mat-label>Recipient</mat-label>
-          <!-- Bind the selection to the recipientEmail property -->
-          <mat-select [(ngModel)]="recipientEmail">
-            <!-- Iterate over the addressBook signal to create options -->
+          <mat-select [(ngModel)]="recipientId">
             @for (contact of addressBook(); track contact.id) {
-              <!-- The value of the option is the contact's email -->
-              <mat-option [value]="contact.email">{{ contact.alias }}</mat-option>
+              <mat-option [value]="contact.id">{{ contact.alias }} ({{ contact.email }})</mat-option>
             }
           </mat-select>
         </mat-form-field>
@@ -53,11 +65,10 @@
         <h4>Decrypted Message:</h4>
         <mat-form-field appearance="fill" class="full-width">
           <mat-label>Most Recent Message</mat-label>
-          <!-- Use a textarea for better display of longer messages -->
           <textarea matInput readonly rows="4">{{ decryptedMessage() }}</textarea>
         </mat-form-field>
       </div>
+
     </mat-card-content>
   </mat-card>
 </div>
-
