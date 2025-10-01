@@ -49,12 +49,12 @@ export class AngularRoutingClient implements RoutingClient {
   constructor(private http: HttpClient) {}
 
   send(envelope: SecureEnvelope): Promise<void> {
+
+    console.log("send message length:", envelope.encryptedData.byteLength, envelope.encryptedData.length)
+
     const spb = secureEnvelopeToProto(envelope);
     const url = `${environment.routingServiceUrl}/send`;
 
-    // THIS IS NOW CORRECT:
-    // Use the runtime schema object 'SecureEnvelopePbSchema'
-    // instead of the compile-time type 'SecureEnvelopePb'.
     const jsonPayload = toJsonString(SecureEnvelopePbSchema, spb);
 
     return firstValueFrom(
@@ -87,6 +87,7 @@ export class AngularRoutingClient implements RoutingClient {
 // should be able to use the import from @illmade-knight/action-intention-protos but for some reason wasn't working
 // use it when it's sorted out
 function secureEnvelopeFromProto(protoEnvelope: SecureEnvelopePb): SecureEnvelope {
+  console.log("getting secure envelope from protos")
   return {
     senderId: URN.parse(protoEnvelope.senderId),
     recipientId: URN.parse(protoEnvelope.recipientId),
